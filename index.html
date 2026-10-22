@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Experiment 12: Monte Carlo BER over AWGN</title>
+<link href="https://fonts.googleapis.com/css2?family=Spectral:wght@500;700&family=IBM+Plex+Sans:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#eaeff4;--surf:#fff;--ink:#14213d;--mut:#55627a;--grid:#d5dde7;--line:#c3cedb;--acc:#0b6e8a;--okc:#1b7f4b;--bad:#b3261e;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0e1621;--surf:#16212e;--ink:#e6edf5;--mut:#9aa9bd;--grid:#263548;--line:#34465c;--acc:#5cc3e0;--okc:#5fd08f;--bad:#ff8a80}}
+:root[data-theme="dark"]{--bg:#0e1621;--surf:#16212e;--ink:#e6edf5;--mut:#9aa9bd;--grid:#263548;--line:#34465c;--acc:#5cc3e0;--okc:#5fd08f;--bad:#ff8a80;color-scheme:dark}
+*{box-sizing:border-box}html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 "IBM Plex Sans",system-ui,sans-serif}
+main{max-width:980px;margin:0 auto;padding:20px 16px 48px}
+h1,h2{font-family:Spectral,Georgia,serif;line-height:1.2;margin:0}
+h1{font-size:2rem;font-weight:700}h2{font-size:1.35rem;margin-bottom:10px}
+.lede{color:var(--mut);max-width:70ch;margin:8px 0 0}
+section{background:var(--surf);border:1px solid var(--line);border-radius:6px;padding:16px;margin-top:16px}
+.row{display:flex;flex-wrap:wrap;gap:12px 18px;align-items:end}
+label{font-size:.9rem;color:var(--mut);display:flex;flex-direction:column;gap:3px}
+input[type=number]{width:96px;padding:6px 8px;border:1px solid var(--line);border-radius:4px;background:var(--bg);color:var(--ink);font:inherit}
+.mods label{flex-direction:row;align-items:center;gap:6px;color:var(--ink)}
+.sw{width:11px;height:11px;border-radius:50%;display:inline-block}
+button{font:600 .95rem "IBM Plex Sans",sans-serif;padding:8px 16px;border-radius:4px;border:1px solid var(--acc);background:var(--acc);color:var(--bg);cursor:pointer}
+button.ghost{background:none;color:var(--acc)}button:focus-visible,input:focus-visible,textarea:focus-visible,summary:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+.bar{height:6px;background:var(--grid);border-radius:3px;margin-top:12px;overflow:hidden}.bar i{display:block;height:100%;width:0;background:var(--acc)}
+#status{font-size:.9rem;color:var(--mut);margin-top:6px;min-height:1.4em}
+canvas{width:100%;height:360px;display:block}
+.leg{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:.88rem;margin-top:8px;color:var(--mut)}
+.scroll{overflow-x:auto}table{border-collapse:collapse;width:100%;font-size:.86rem}
+th,td{padding:5px 8px;border-bottom:1px solid var(--grid);text-align:right;white-space:nowrap}th:first-child,td:first-child{text-align:left}
+.pass{color:var(--okc);font-weight:600}.fail{color:var(--bad);font-weight:600}
+textarea{width:100%;min-height:150px;padding:10px;border:1px solid var(--line);border-radius:4px;background:var(--bg);color:var(--ink);font:inherit;font-size:.92rem}
+.obs p{margin:0 0 10px;max-width:75ch}code{font-size:.9em;background:var(--bg);padding:1px 4px;border-radius:3px}
+.eq{background:var(--bg);border-left:3px solid var(--acc);padding:8px 12px;font-size:.92rem;margin:10px 0 0}
+details summary{cursor:pointer;font-weight:600;margin-top:10px}
+</style></head><body><main>
+<h1>Monte Carlo BER over AWGN</h1>
+<p class="lede">Simulate BPSK, QPSK, BFSK, 8-PSK, 16-QAM and 64-QAM in your browser. Each Eb/N0 point runs until 200 bit errors or 10⁶ bits, whichever comes first.</p>
+
+<section>
+<h2>Setup</h2>
+<div class="row mods" id="mods"></div>
+<div class="row" style="margin-top:14px">
+<label>Eb/N0 start (dB)<input type="number" id="g0" value="0"></label>
+<label>Eb/N0 end (dB)<input type="number" id="g1" value="18"></label>
+<label>Step (dB)<input type="number" id="gs" value="1" min="0.25" step="0.25"></label>
+<label>Stop at errors<input type="number" id="me" value="200"></label>
+<label>Stop at bits<input type="number" id="mb" value="1000000"></label>
+<button id="run">Run simulation</button><button id="stop" class="ghost">Stop</button>
+</div>
+<div class="bar"><i id="pb"></i></div><div id="status">Ready.</div>
+<div class="eq">Es is normalized to 1 for every constellation. With k bits per symbol, Es/N0 = k·Eb/N0, so N0 = 1/(k·Eb/N0). Complex noise has variance N0, split as σ² = N0/2 on each of I and Q. BFSK uses two orthogonal unit-energy signals (k = 1, Es = Eb) with the same σ per dimension.</div>
+</section>
+
+<section>
+<h2>Predictions, written before running</h2>
+<textarea id="pred" aria-label="Predictions">BPSK and QPSK: same BER against Eb/N0 (QPSK is two independent BPSK streams), reaching about 10⁻⁶ near 10.5 dB.
+BFSK (coherent): 3 dB to the right of BPSK, because its two signals are orthogonal rather than antipodal.
+8-PSK, 16-QAM, 64-QAM: each curve moves further right as k grows. At 10⁻⁵ expect 64-QAM to need roughly 8 dB more than BPSK.
+Above about 10.5 dB, BPSK, QPSK and BFSK-near-12 dB will hit the 10⁶-bit cap with few or zero errors. Those points get plotted as upper bounds near 3/10⁶, not as zero.
+8-PSK and QAM theory is a Gray-coding, nearest-neighbour approximation, so it may overestimate BER at low Eb/N0 and should converge as Eb/N0 rises.</textarea>
+</section>
+
+<section>
+<h2>BER against Eb/N0</h2>
+<canvas id="c1" role="img" aria-label="Semilog BER curves"></canvas>
+<div class="leg" id="leg"></div>
+<div class="leg">Lines: theory. Filled circles: simulated. Hollow triangles: zero errors seen, plotted at the 95% upper bound 3/N.</div>
+</section>
+
+<section>
+<h2>Error count against transmitted bits</h2>
+<canvas id="c2" role="img" aria-label="Errors versus bits"></canvas>
+<div class="leg">Each marker is one Eb/N0 point. Low SNR stops on the 200-error line; high SNR runs to the bit cap. Zero-error points sit on the bottom edge.</div>
+</section>
+
+<section class="obs">
+<h2>Observation and interpretation</h2>
+<div id="obs"><p>Run the simulation to see how each curve compares with theory.</p></div>
+<details><summary>All simulated points</summary><div class="scroll"><table id="tbl"></table></div></details>
+</section>
+
+<section>
+<h2>Mandatory validation</h2>
+<p style="margin-top:0;color:var(--mut)">Noiseless and 60 dB inputs must give zero errors. At −40 dB the detector is guessing, so BER should land near 0.5.</p>
+<button id="val">Run validation</button>
+<div class="scroll" style="margin-top:12px"><table id="vt"></table></div>
+</section>
+</main>
+<script>
+const $=s=>document.querySelector(s);
+const MODS=[{id:'BPSK',c:'#1f6feb'},{id:'QPSK',c:'#d1495b'},{id:'BFSK',c:'#2a9d8f'},{id:'8-PSK',c:'#e09f3e'},{id:'16-QAM',c:'#9a63d8'},{id:'64-QAM',c:'#6aa51a'}];
+$('#mods').innerHTML=MODS.map(m=>`<label><input type="checkbox" value="${m.id}" checked><span class="sw" style="background:${m.c}"></span>${m.id}</label>`).join('');
+$('#leg').innerHTML=MODS.map(m=>`<span><span class="sw" style="background:${m.c}"></span> ${m.id}</span>`).join('');
+const gray=n=>n^(n>>1);
+function build(id){let pts=[],lab=[],k;
+ if(id==='BPSK'){k=1;pts=[[-1,0],[1,0]];lab=[0,1]}
+ else if(id==='BFSK'){k=1;pts=[[1,0],[0,1]];lab=[0,1]}
+ else if(id==='QPSK'){k=2;const a=Math.SQRT1_2;for(let l=0;l<4;l++){pts.push([(l&2?1:-1)*a,(l&1?1:-1)*a]);lab.push(l)}}
+ else if(id==='8-PSK'){k=3;for(let i=0;i<8;i++){pts.push([Math.cos(i*Math.PI/4),Math.sin(i*Math.PI/4)]);lab.push(gray(i))}}
+ else{const M=id==='16-QAM'?16:64,m=Math.sqrt(M),h=Math.log2(m),s=Math.sqrt(2*(M-1)/3);k=2*h;
+  for(let a=0;a<m;a++)for(let b=0;b<m;b++){pts.push([(2*a-m+1)/s,(2*b-m+1)/s]);lab.push((gray(a)<<h)|gray(b))}}
+ const Es=pts.reduce((s,p)=>s+p[0]*p[0]+p[1]*p[1],0)/pts.length;
+ return{k,pts,lab,Es}}
+function gauss(){return Math.sqrt(-2*Math.log(1-Math.random()))*Math.cos(2*Math.PI*Math.random())}
+function erfc(x){const z=Math.abs(x),t=1/(1+.5*z),a=t*Math.exp(-z*z-1.26551223+t*(1.00002368+t*(.37409196+t*(.09678418+t*(-.18628806+t*(.27886807+t*(-1.13520398+t*(1.48851587+t*(-.82215223+t*.17087277)))))))));return x>=0?a:2-a}
+const Q=x=>.5*erfc(x/Math.SQRT2);
+function theory(id,db){const g=Math.pow(10,db/10);
+ if(id==='BPSK'||id==='QPSK')return Q(Math.sqrt(2*g));
+ if(id==='BFSK')return Q(Math.sqrt(g));
+ if(id==='8-PSK')return (2/3)*Q(Math.sqrt(6*g)*Math.sin(Math.PI/8));
+ const M=id==='16-QAM'?16:64,k=Math.log2(M);return (4/k)*(1-1/Math.sqrt(M))*Q(Math.sqrt(3*k*g/(M-1)))}
+const exact=id=>id==='BPSK'||id==='QPSK'||id==='BFSK';
+function sim(C,sigma,maxErr,maxBits){const{k,pts,lab}=C,n=pts.length;let err=0,bits=0;
+ while(err<maxErr&&bits<maxBits){
+  const ns=Math.max(1,Math.min(1000,Math.ceil((maxBits-bits)/k),Math.floor((maxErr-err)/k)));
+  for(let i=0;i<ns;i++){const t=Math.floor(Math.random()*n),p=pts[t];
+   const x=p[0]+(sigma?sigma*gauss():0),y=p[1]+(sigma?sigma*gauss():0);let b=0,bd=1e30;
+   for(let j=0;j<n;j++){const dx=x-pts[j][0],dy=y-pts[j][1],d=dx*dx+dy*dy;if(d<bd){bd=d;b=j}}
+   let z=lab[t]^lab[b];while(z){err+=z&1;z>>=1}}
+  bits+=ns*k}
+ return{err,bits}}
+const sigmaOf=(C,db)=>Math.sqrt(1/(C.k*Math.pow(10,db/10))/2);
+let R={},stopF=false,gr=[0,18];
+const tick=()=>new Promise(r=>setTimeout(r,0));
+$('#stop').onclick=()=>stopF=true;
+$('#run').onclick=async()=>{
+ const sel=[...document.querySelectorAll('#mods input:checked')].map(e=>e.value);
+ const g0=+$('#g0').value,g1=+$('#g1').value,gs=Math.max(.25,+$('#gs').value),me=+$('#me').value||200,mb=+$('#mb').value||1e6;
+ const gl=[];for(let g=g0;g<=g1+1e-9;g+=gs)gl.push(+g.toFixed(4));
+ if(!sel.length||!gl.length){$('#status').textContent='Pick at least one modulation and a valid range.';return}
+ R={};gr=[g0,g1];stopF=false;$('#run').disabled=true;let done=0;const tot=sel.length*gl.length;
+ for(const id of sel){const C=build(id);R[id]={C,pts:[]};
+  for(const g of gl){if(stopF)break;
+   $('#status').textContent=`${id} at ${g} dB`;
+   const s=sigmaOf(C,g),r=sim(C,s,me,mb);
+   R[id].pts.push({g,s,bits:r.err===0?r.bits:r.bits,err:r.err,ber:r.err/r.bits,ub:3/r.bits,th:theory(id,g)});
+   $('#pb').style.width=(++done/tot*100)+'%';draw();await tick()}
+  if(stopF)break}
+ $('#status').textContent=stopF?'Stopped. Showing completed points.':'Done.';$('#run').disabled=false;draw();report()};
+
+function plot(cv,o){const r=cv.getBoundingClientRect(),d=devicePixelRatio||1;cv.width=r.width*d;cv.height=r.height*d;
+ const g=cv.getContext('2d');g.scale(d,d);const W=r.width,H=r.height,L=54,Rr=12,T=10,B=42,cs=getComputedStyle(document.documentElement);
+ const ink=cs.getPropertyValue('--ink').trim(),grid=cs.getPropertyValue('--grid').trim(),mut=cs.getPropertyValue('--mut').trim();
+ const tx=(v,l)=>l?Math.log10(v):v,X0=tx(o.xmin,o.lx),X1=tx(o.xmax,o.lx),Y0=tx(o.ymin,o.ly),Y1=tx(o.ymax,o.ly);
+ const fx=v=>L+(tx(v,o.lx)-X0)/(X1-X0)*(W-L-Rr),fy=v=>H-B-(tx(Math.max(v,o.ymin/10),o.ly)-Y0)/(Y1-Y0)*(H-B-T);
+ g.font='11px "IBM Plex Sans",sans-serif';g.textAlign='center';g.fillStyle=mut;g.strokeStyle=grid;g.lineWidth=1;
+ const xt=[];if(o.lx){for(let e=Math.ceil(X0);e<=X1;e++)xt.push(Math.pow(10,e))}else{const st=o.xs||2;for(let v=Math.ceil(o.xmin/st)*st;v<=o.xmax+1e-9;v+=st)xt.push(v)}
+ xt.forEach(v=>{const x=fx(v);g.beginPath();g.moveTo(x,T);g.lineTo(x,H-B);g.stroke();g.fillText(o.lx?'10'+sup(Math.log10(v)):v,x,H-B+15)});
+ g.textAlign='right';
+ for(let e=Math.ceil(Y0);e<=Y1;e++){const v=Math.pow(10,e),y=fy(v);g.beginPath();g.moveTo(L,y);g.lineTo(W-Rr,y);g.stroke();g.fillText('10'+sup(e),L-6,y+4)}
+ g.textAlign='center';g.fillStyle=ink;g.font='12px "IBM Plex Sans",sans-serif';g.fillText(o.xl,(L+W-Rr)/2,H-6);
+ g.save();g.translate(13,(T+H-B)/2);g.rotate(-Math.PI/2);g.fillText(o.yl,0,0);g.restore();
+ g.strokeStyle=mut;g.strokeRect(L,T,W-L-Rr,H-B-T);
+ g.save();g.beginPath();g.rect(L,T,W-L-Rr,H-B-T);g.clip();
+ (o.ref||[]).forEach(f=>{g.setLineDash([5,4]);g.beginPath();if(f.h!=null){g.moveTo(L,fy(f.h));g.lineTo(W,fy(f.h))}else{g.moveTo(fx(f.v),T);g.lineTo(fx(f.v),H)}g.stroke();g.setLineDash([])});
+ o.series.forEach(s=>{g.strokeStyle=s.c;g.fillStyle=s.c;g.lineWidth=1.6;
+  if(s.line.length){g.beginPath();s.line.forEach((p,i)=>i?g.lineTo(fx(p[0]),fy(p[1])):g.moveTo(fx(p[0]),fy(p[1])));g.stroke()}
+  s.mk.forEach(p=>{const x=fx(p[0]),y=fy(p[1]);g.beginPath();
+   if(p[2]==='v'){g.moveTo(x-5,y-4);g.lineTo(x+5,y-4);g.lineTo(x,y+5);g.closePath();g.stroke()}else{g.arc(x,y,3.6,0,7);g.fill()}})});
+ g.restore()}
+function sup(e){return String(e).replace(/-/g,'⁻').replace(/\d/g,c=>'⁰¹²³⁴⁵⁶⁷⁸⁹'[c])}
+function draw(){const ids=MODS.map(m=>m.id).filter(i=>R[i]);
+ const col=i=>MODS.find(m=>m.id===i).c;
+ const s1=ids.map(id=>{const P=R[id].pts,line=[];for(let g=gr[0];g<=gr[1]+1e-9;g+=.1){const t=theory(id,g);if(t>1e-8)line.push([g,t])}
+  return{c:col(id),line,mk:P.map(p=>p.err?[p.g,p.ber]:[p.g,p.ub,'v'])}});
+ plot($('#c1'),{xmin:gr[0],xmax:Math.max(gr[1],gr[0]+1),ymin:1e-7,ymax:1,ly:1,xl:'Eb/N0 (dB)',yl:'Bit error rate',series:s1,xs:2});
+ const s2=ids.map(id=>({c:col(id),line:R[id].pts.map(p=>[p.bits,Math.max(p.err,.5)]),mk:R[id].pts.map(p=>p.err?[p.bits,p.err]:[p.bits,.5,'v'])}));
+ plot($('#c2'),{xmin:100,xmax:1e7,ymin:.3,ymax:1e3,lx:1,ly:1,xl:'Transmitted bits',yl:'Bit errors found',series:s2,ref:[{h:+$('#me').value||200},{v:+$('#mb').value||1e6}]})}
+addEventListener('resize',draw);
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change',draw);
+
+function report(){let h='',rows='<tr><th>Modulation</th><th>Eb/N0</th><th>σ per dim</th><th>Bits</th><th>Errors</th><th>BER sim</th><th>BER theory</th><th>Ratio</th></tr>';
+ for(const id in R){const{C,pts}=R[id],ok=pts.filter(p=>p.err>=100&&p.th<.1);
+  pts.forEach(p=>rows+=`<tr><td>${id}</td><td>${p.g}</td><td>${p.s.toFixed(4)}</td><td>${p.bits}</td><td>${p.err}</td><td>${p.err?p.ber.toExponential(2):'&lt; '+p.ub.toExponential(1)}</td><td>${p.th.toExponential(2)}</td><td>${p.err?(p.ber/p.th).toFixed(3):'–'}</td></tr>`);
+  const zero=pts.filter(p=>!p.err).length;
+  if(!ok.length){h+=`<p><b>${id}</b> (k = ${C.k}, Es = ${C.Es.toFixed(3)}): too few points with 100+ errors to compare. ${zero?zero+' zero-error point(s) are shown as upper bounds.':''}</p>`;continue}
+  const rat=ok.map(p=>p.ber/p.th),worst=ok.reduce((a,p)=>Math.abs(p.ber/p.th-1)-3/Math.sqrt(p.err)>Math.abs(a.ber/a.th-1)-3/Math.sqrt(a.err)?p:a);
+  const bad=ok.filter(p=>Math.abs(p.ber/p.th-1)>3/Math.sqrt(p.err));
+  const lo=ok[0],hi=ok[ok.length-1];
+  let t=`<b>${id}</b> (k = ${C.k}, Es = ${C.Es.toFixed(3)}): ratio sim/theory ranges ${Math.min(...rat).toFixed(2)} to ${Math.max(...rat).toFixed(2)} over ${ok.length} points with 100+ errors. `;
+  if(!bad.length)t+=`Every point is within 3 standard errors (3/√errors) of theory, so it agrees. `;
+  else{t+=`${bad.length} point(s) fall outside 3 standard errors; the largest gap is ${(worst.ber/worst.th).toFixed(2)}× at ${worst.g} dB. `;
+   t+=exact(id)?`This theory is exact, so check the noise scaling first: a 3 dB error in σ moves BER by a large factor that does not shrink with SNR.`:`The theory is a nearest-neighbour approximation, so a gap that shrinks from ${(lo.ber/lo.th).toFixed(2)}× at ${lo.g} dB to ${(hi.ber/hi.th).toFixed(2)}× at ${hi.g} dB points to approximation error, not a bug. A constant offset would point to a scaling bug.`}
+  if(zero)t+=` ${zero} zero-error point(s) are upper bounds at 3/N, not BER = 0.`;
+  h+=`<p>${t}</p>`}
+ $('#obs').innerHTML=h||'<p>No data.</p>';$('#tbl').innerHTML=rows}
+
+$('#val').onclick=async()=>{let h='<tr><th>Modulation</th><th>Noiseless errors</th><th>60 dB errors</th><th>BER at −40 dB</th><th>Result</th></tr>';
+ $('#vt').innerHTML=h;
+ for(const m of MODS){await tick();const C=build(m.id),a=sim(C,0,1e9,2e5),b=sim(C,sigmaOf(C,60),1e9,2e5),c=sim(C,sigmaOf(C,-40),1e9,2e5),br=c.err/c.bits;
+  const ok=a.err===0&&b.err===0&&Math.abs(br-.5)<.01;
+  h+=`<tr><td>${m.id}</td><td>${a.err}</td><td>${b.err}</td><td>${br.toFixed(4)}</td><td class="${ok?'pass':'fail'}">${ok?'Pass':'Check detector'}</td></tr>`;$('#vt').innerHTML=h}};
+draw();
+</script></body></html>
